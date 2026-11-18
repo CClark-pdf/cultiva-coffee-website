@@ -55,6 +55,11 @@ try{
  assert.equal((await staff.call('orders/status',{id:order.id,status:'COMPLETED'})).status,400);
  await staff.call('orders/payment',{id:order.id,amount:order.total,method:'Cash'});
  assert.equal((await staff.call('orders/status',{id:order.id,status:'COMPLETED'})).status,200);check('order fulfillment requires valid transitions and full payment');
+ const meal=catalog.products.find(x=>x.category==='Meals');
+ const walkIn=(await staff.call('orders/create',{items:[{id:meal.id,qty:1}],pos:true,customerName:'Test walk-in'})).data.order;
+ for(const status of ['PREPARING','READY'])assert.equal((await staff.call('orders/status',{id:walkIn.id,status})).status,200);
+ await staff.call('orders/payment',{id:walkIn.id,amount:walkIn.total,method:'Cash'});
+ assert.equal((await staff.call('orders/status',{id:walkIn.id,status:'COMPLETED'})).status,200);
  const eventDate=new Date(Date.now()+7*86400000).toISOString().slice(0,10);const details={packageId:catalog.packages[0].id,eventDate,eventTime:'14:00',eventType:'Test celebration',venue:'Test-only venue, test city',name:'QA Customer',phone:'09123456789',guests:25,notes:'Automated test'};
  assert.equal((await customer.call('bookings/create',{...details,phone:'09ABC'})).status,400);check('invalid mobile number rejected');
  const b1=(await customer.call('bookings/create',details)).data.booking;const b2=(await other.call('bookings/create',{...details,name:'Other Customer'})).data.booking;
@@ -68,7 +73,16 @@ try{
  assert.equal((await staff.call('assets/assign',{bookingId:winner.id,assetId:asset.id,quantity:60})).status,200);
  const assigned=(await admin.call('assets')).data.assets.find(a=>a.id===asset.id);assert.equal(assigned.quantity-assigned.allocations.reduce((s,a)=>s+a.quantity,0),40);
  const aid=assigned.allocations[0].id;assert.equal((await staff.call('assets/return',{id:aid,damaged:2,lost:0})).status,200);assert.equal((await staff.call('assets/return',{id:aid,damaged:2,lost:0})).status,409);check('reusable assignment and damaged return are validated, with no double return');
- const summary=(await admin.call('analytics')).data;assert.equal(summary.sales,order.total);assert.equal(summary.rentalRevenue,0);assert.equal(summary.collections,order.total+b1.total);check('analytics separates completed revenue from deposits without double counting');
+ const summary=(await admin.call('analytics')).data;assert.equal(summary.sales,order.total+walkIn.total);assert.equal(summary.rentalRevenue,0);assert.equal(summary.collections,order.total+walkIn.total);assert.equal(summary.bookings,0);assert.equal(summary.upcomingBookings,1);assert.equal(summary.pendingRentalRequests,1);check('analytics separates completed revenue from deposits without double counting');
+ assert.equal(summary.completedOrders,2);assert.equal(summary.averageOrder,Math.round((order.total+walkIn.total)/2));
+ assert.equal(summary.topCoffee[0].qty,2);assert.equal(summary.topMeals[0].qty,1);
+ assert.equal(summary.channels.find(x=>x.name==='Pickup').orders,1);assert.equal(summary.channels.find(x=>x.name==='Walk-in POS').orders,1);
+ assert.equal(summary.chart.reduce((sum,p)=>sum+p.total,0),summary.sales);
+ assert.equal(summary.categoryTotals.reduce((sum,p)=>sum+p.total,0),summary.sales);
+ assert.equal(summary.hourBins.reduce((sum,p)=>sum+p.orders,0),summary.completedOrders);
+ check('analytics separates coffee and meals, trends, channels, category totals, and peak hours');
+ for(const [days,buckets] of [[7,7],[90,13]]){const report=(await admin.call('analytics?days='+days)).data;assert.equal(report.sales,summary.sales);assert.equal(report.chart.length,buckets);assert.equal(report.chart.reduce((sum,p)=>sum+p.total,0),report.sales)}
+ assert.equal((await admin.call('analytics?days=999')).status,400);check('dashboard date ranges aggregate every completed sale exactly once');
  await admin.call('auth/logout',{});await admin.call('auth/login',{email:'admin@test.invalid',password:testPassword});assert.equal((await admin.call('auth/verify',{code:recovery[0],recovery:true})).status,200);
  await admin.call('auth/logout',{});await admin.call('auth/login',{email:'admin@test.invalid',password:testPassword});assert.equal((await admin.call('auth/verify',{code:recovery[0],recovery:true})).status,401);check('recovery codes work exactly once');
  const csrf=await fetch(base+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://untrusted.invalid'},body:JSON.stringify({email:'admin@test.invalid',password:testPassword})});assert.equal(csrf.status,403);check('cross-origin mutations are rejected');
