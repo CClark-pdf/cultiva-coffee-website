@@ -20,6 +20,18 @@ model User {
   sessions Session[]
   orders Order[]
   bookings Booking[]
+  notifications Notification[]
+}
+model Notification {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields:[userId], references:[id], onDelete:Cascade)
+  title String
+  message String
+  bookingId String?
+  readAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([userId, createdAt])
 }
 model Session {
   id String @id
@@ -64,6 +76,7 @@ model Order {
   total Int
   paid Int @default(0)
   paymentMethod String?
+  payments Json @default("[]")
   createdAt DateTime @default(now())
   @@index([createdAt])
 }
