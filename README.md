@@ -35,7 +35,7 @@ Build: `npm run build`. Start: `npm start`. Pre-deploy command: `npm run db:migr
 
 - One cart can serve one event per Philippine calendar day. Pending booking requests do not hold the date; a verified 50% deposit and Admin confirmation make it unavailable. Dates manually blocked by Admin are also unavailable.
 - Event dates are shown publicly without customer names. Frontend and backend both enforce availability; confirmation serializes competing bookings in PostgreSQL.
-- Orders are for pickup or in-person POS. Staff records payments manually; rental payments are recorded by Admin after verification. No online payment gateway or automatic ingredient deduction is included.
+- Orders are for pickup or in-person POS. Customers see a five-stage progress tracker in My Orders, and customer and operations order lists refresh roughly every five seconds while the page is visible. Staff records payments manually; rental payments are recorded by Admin after verification. No online payment gateway or automatic ingredient deduction is included.
 - Reusable cups, glasses, trays, and pitchers are tracked by assignments and returned condition. Staff manually records the return; no inventory changes arise from coffee or meal orders.
 - Initial products, prices, packages, and images are demonstration content. Business name and address, policies, packaging, transport fees, actual product photos, payment instructions, and accessibility copy require client approval.
 
