@@ -1,0 +1,43 @@
+# CULTIVA Coffee & Company
+
+A TypeScript / Next.js application for a café with pickup orders, walk-in POS, a one-cart-per-day event rental calendar, reusable equipment assignments, payments, analytics, and role-based Customer / Staff / Admin access. Staff and Admin require a password plus a TOTP code compatible with Google Authenticator. Customers sign in using a password. This is a first working version with placeholder branding, products, packages, images, and business copy to replace with client-approved details.
+
+## Setup locally
+
+Use Node 22+ and PostgreSQL. Copy `.env.example` to `.env`, set `DATABASE_URL` to your PostgreSQL connection string, generate a fresh 32-byte hex `AUTH_ENCRYPTION_KEY`, and set `APP_URL` to the site origin. Do not commit `.env`.
+
+```sh
+npm ci
+npx prisma migrate deploy
+npm run db:seed
+npm run admin:create
+npm run build
+npm start
+```
+
+`npm run admin:create` requires `ADMIN_EMAIL`, `ADMIN_PASSWORD` (12 characters or longer), and optionally `ADMIN_NAME` in the process environment. It creates a fresh Admin account once; the Admin must set up Google Authenticator at first login. Admin can create Staff accounts from User access. Staff and Admin recovery codes are shown once after setup. Store them safely.
+
+For local development with an existing PostgreSQL service, use `npm run dev:app`. `npm run dev` is a preview helper that starts a local ephemeral database and serves the production build if no `DATABASE_URL` is set; it is not the production process. To run the automated checks: `npm test`, `npm run typecheck`, `npm run build`, and `node scripts/integration-test.mjs` (the latter starts an isolated local PostgreSQL process and the production app).
+
+## Railway deployment
+
+Create a **new, separate** Railway project and connect a GitHub repository containing this code. Add a PostgreSQL database to the project. On the web service set:
+
+- `DATABASE_URL`: reference the Railway PostgreSQL connection string.
+- `AUTH_ENCRYPTION_KEY`: a fresh 64-character random hex string, kept private.
+- `APP_URL`: the exact public HTTPS origin for this site.
+- `NODE_ENV`: `production`.
+
+Build: `npm run build`. Start: `npm start`. Pre-deploy command: `npm run db:migrate && npm run db:seed` (seed upserts sample catalog without overwriting existing edits). Set the web service public domain, set `APP_URL` to that origin, and redeploy. Run the one-time admin creation command in an authenticated Railway environment with `ADMIN_EMAIL` and `ADMIN_PASSWORD`; do not put credentials in GitHub. Ensure you can sign in, enroll Google Authenticator, create a Staff account, and complete a test order and booking before launch. Railway's managed Postgres needs backups and your project's cost settings reviewed before handling live client data.
+
+## Business assumptions to confirm
+
+- One cart can serve one event per Philippine calendar day. Pending booking requests do not hold the date; a verified 50% deposit and Admin confirmation make it unavailable. Dates manually blocked by Admin are also unavailable.
+- Event dates are shown publicly without customer names. Frontend and backend both enforce availability; confirmation serializes competing bookings in PostgreSQL.
+- Orders are for pickup or in-person POS. Staff records payments manually; rental payments are recorded by Admin after verification. No online payment gateway or automatic ingredient deduction is included.
+- Reusable cups, glasses, trays, and pitchers are tracked by assignments and returned condition. Staff manually records the return; no inventory changes arise from coffee or meal orders.
+- Initial products, prices, packages, and images are demonstration content. Business name and address, policies, packaging, transport fees, actual product photos, payment instructions, and accessibility copy require client approval.
+
+## Security behavior
+
+Customer self-registration always creates a CUSTOMER account. Only Admin creates STAFF or ADMIN accounts. Privileged sessions remain unverified until a valid TOTP or one-time recovery code is submitted. TOTP secrets use AES-GCM encryption, recovery codes are stored as hashes, sessions are opaque and stored server-side, and operations are checked against the role on every API request. Reservation confirmation and asset assignments use PostgreSQL transaction locks. All mutations reject cross-origin JSON requests. Deploy behind HTTPS with a strong encryption key; changing that key invalidates stored authenticator secrets and will require a controlled recovery process.
