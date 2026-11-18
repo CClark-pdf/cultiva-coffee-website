@@ -15,7 +15,7 @@ npm run build
 npm start
 ```
 
-`npm run admin:create` requires `ADMIN_EMAIL`, `ADMIN_PASSWORD` (12 characters or longer), and optionally `ADMIN_NAME` in the process environment. It creates a fresh Admin account once; the Admin must set up Google Authenticator at first login. Admin can create Staff accounts from User access. Staff and Admin recovery codes are shown once after setup. Store them safely.
+`npm run admin:create` requires `ADMIN_EMAIL`, `ADMIN_PASSWORD` (12 characters or longer), and optionally `ADMIN_NAME` in the process environment. Alternatively, set a 64-character random hex `ADMIN_SETUP_TOKEN` and use **Staff & Admin → Set up the first Admin account** on the site. The setup code works only while no Admin account exists. The owner chooses their email and password in the form, then enrolls Google Authenticator before the Admin workspace opens. Admin can create Staff accounts from **User access**. Staff and Admin recovery codes are shown once after setup. Store them safely.
 
 For local development with an existing PostgreSQL service, use `npm run dev:app`. `npm run dev` is a preview helper that starts a local ephemeral database and serves the production build if no `DATABASE_URL` is set; it is not the production process. To run the automated checks: `npm test`, `npm run typecheck`, `npm run build`, and `node scripts/integration-test.mjs` (the latter starts an isolated local PostgreSQL process and the production app).
 
@@ -26,9 +26,10 @@ Create a **new, separate** Railway project and connect a GitHub repository conta
 - `DATABASE_URL`: reference the Railway PostgreSQL connection string.
 - `AUTH_ENCRYPTION_KEY`: a fresh 64-character random hex string, kept private.
 - `APP_URL`: the exact public HTTPS origin for this site.
+- `ADMIN_SETUP_TOKEN`: a separate random 64-character hex one-time setup code. Never commit it. Remove this variable from Railway after the first Admin is created.
 - `NODE_ENV`: `production`.
 
-Build: `npm run build`. Start: `npm start`. Pre-deploy command: `npm run db:migrate && npm run db:seed` (seed upserts sample catalog without overwriting existing edits). Set the web service public domain, set `APP_URL` to that origin, and redeploy. Run the one-time admin creation command in an authenticated Railway environment with `ADMIN_EMAIL` and `ADMIN_PASSWORD`; do not put credentials in GitHub. Ensure you can sign in, enroll Google Authenticator, create a Staff account, and complete a test order and booking before launch. Railway's managed Postgres needs backups and your project's cost settings reviewed before handling live client data.
+Build: `npm run build`. Start: `npm start`. Pre-deploy command: `npm run db:migrate && npm run db:seed` (seed upserts sample catalog without overwriting existing edits). Set the web service public domain, set `APP_URL` to that origin, and redeploy. For the first Admin, open the public site, choose **Staff & Admin → Set up the first Admin account**, and enter the setup code from the Railway variable, your own email, and your own password. Complete Google Authenticator enrollment and save the one-time recovery codes. Then remove `ADMIN_SETUP_TOKEN` from Railway. Ensure you can sign in, create a Staff account, and complete a test order and booking before launch. Railway's managed Postgres needs backups and your project's cost settings reviewed before handling live client data.
 
 ## Business assumptions to confirm
 
