@@ -2,6 +2,8 @@
 
 A TypeScript / Next.js application for a café with pickup orders, walk-in POS, a one-cart-per-day event rental calendar, reusable equipment assignments, payments, analytics, and role-based Customer / Staff / Admin access. Staff and Admin require a password plus a TOTP code compatible with Google Authenticator. Customers sign in using a password. This is a first working version with placeholder branding, products, packages, images, and business copy to replace with client-approved details.
 
+The Admin overview has 7-, 30-, and 90-day analytics based on actual completed café orders: sales trends, average order value, change from the previous equivalent period, top five coffee and meals by units, category sales, walk-in versus pickup performance, and orders by two-hour window in Philippine time. It also reports rental revenue and bookings by event date, and exports the selected period to CSV. New orders save the item category at sale time; older orders use the current catalog category for grouping. No demonstration sales are inserted.
+
 ## Setup locally
 
 Use Node 22+ and PostgreSQL. Copy `.env.example` to `.env`, set `DATABASE_URL` to your PostgreSQL connection string, generate a fresh 32-byte hex `AUTH_ENCRYPTION_KEY`, and set `APP_URL` to the site origin. Do not commit `.env`.
