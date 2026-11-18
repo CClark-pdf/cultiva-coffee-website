@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 const temp=fs.mkdtempSync(path.join(os.tmpdir(),'cultiva-test-'));
 const pg=new EmbeddedPostgres({databaseDir:temp+'/db',user:'postgres',password:'isolated-test-only',port:55434,persistent:false,postgresFlags:['-k',''],onLog:()=>{},onError:()=>{}});
 const base='http://127.0.0.1:4181';
-const env={...process.env,DATABASE_URL:'postgresql://postgres:isolated-test-only@127.0.0.1:55434/cultiva_test?schema=public',AUTH_ENCRYPTION_KEY:crypto.randomBytes(32).toString('hex'),APP_URL:base,NODE_ENV:'production'};
+const env={...process.env,DATABASE_URL:'postgresql://postgres:isolated-test-only@127.0.0.1:55434/cultiva_test?schema=public',AUTH_ENCRYPTION_KEY:crypto.randomBytes(32).toString('hex'),ADMIN_SETUP_TOKEN:crypto.randomBytes(32).toString('hex'),APP_URL:base,NODE_ENV:'production'};
 const run=(args)=>new Promise((resolve,reject)=>{const p=spawn('node',args,{env,stdio:['ignore','ignore','pipe']});let err='';p.stderr.on('data',d=>err+=d);p.on('exit',c=>c===0?resolve():reject(new Error(err)))});
 let server,db;let checks=0;
 const check=(name)=>{checks++;console.log('PASS '+name)};
@@ -20,18 +20,26 @@ try{
  await pg.initialise();await pg.start();await pg.createDatabase('cultiva_test');
  await run(['node_modules/prisma/build/index.js','migrate','deploy']);await run(['--import','tsx','scripts/seed.ts']);
  db=new PrismaClient({datasources:{db:{url:env.DATABASE_URL}}});
- const testPassword='Test-only-password-'+crypto.randomBytes(8).toString('hex');const passwordHash=await bcrypt.hash(testPassword,12);
- for(const [email,role] of [['admin@test.invalid','ADMIN'],['staff@test.invalid','STAFF']])await db.user.create({data:{name:role,email,role,passwordHash}});
+ const testPassword='Test-only-password-'+crypto.randomBytes(8).toString('hex');
  server=spawn('node',['node_modules/next/dist/bin/next','start','--hostname','127.0.0.1','--port','4181'],{env,stdio:['ignore','pipe','pipe']});
  await new Promise((resolve,reject)=>{let text='';const timer=setTimeout(()=>reject(new Error('Server startup timed out')),30000);server.stdout.on('data',d=>{text+=d;if(text.includes('Ready')){clearTimeout(timer);resolve()}});server.on('exit',()=>{clearTimeout(timer);reject(new Error('Server exited'))})});
  const anon=client(),customer=client(),other=client(),admin=client(),staff=client();
  assert.equal((await anon.call('assets')).status,401);check('anonymous access to inventory denied');
+ assert.equal((await anon.call('setup/status')).data.available,true);
+ const initial={name:'Owner',email:'admin@test.invalid',password:testPassword};
+ assert.equal((await admin.call('auth/setup',{...initial,setupCode:'bad-code'})).status,401);
+ let setupResult=await admin.call('auth/setup',{...initial,setupCode:env.ADMIN_SETUP_TOKEN});
+ assert.equal(setupResult.status,200);assert.equal(setupResult.data.user.role,'ADMIN');assert.equal(setupResult.data.verified,false);
+ assert.equal((await admin.call('analytics')).status,403);
+ assert.equal((await anon.call('setup/status')).data.available,false);
+ assert.equal((await anon.call('auth/setup',{name:'Impostor',email:'impostor@test.invalid',password:testPassword,setupCode:env.ADMIN_SETUP_TOKEN})).status,409);
+ check('one-time Admin setup requires secret and blocks duplicate creation');
  let r=await customer.call('auth/register',{name:'QA Customer',email:'customer@test.invalid',password:testPassword,role:'ADMIN'});assert.equal(r.status,200);assert.equal(r.data.user.role,'CUSTOMER');check('public registration cannot escalate role');
  assert.equal((await customer.call('analytics')).status,403);assert.equal((await customer.call('users')).status,403);check('customer denied Admin data');
  await other.call('auth/register',{name:'Other Customer',email:'other@test.invalid',password:testPassword});
  let recovery;
  for(const [c,email] of [[admin,'admin@test.invalid'],[staff,'staff@test.invalid']]){
-  r=await c.call('auth/login',{email,password:testPassword});assert.equal(r.data.verified,false);
+  if(email.startsWith('staff')){assert.equal((await admin.call('users/create',{name:'Staff',email,password:testPassword,role:'STAFF'})).status,200);r=await c.call('auth/login',{email,password:testPassword});assert.equal(r.data.verified,false);}
   assert.equal((await c.call('assets')).status,403);check(email+' blocked before TOTP');
   const setup=await c.call('auth/enroll',{});assert.equal(setup.status,200);assert.ok(setup.data.qr.startsWith('data:image/png'));
   assert.equal((await c.call('auth/verify',{code:'abcdef'})).status,401);
