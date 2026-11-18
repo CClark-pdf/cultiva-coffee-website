@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'node:crypto';
 import { cookies } from 'next/headers';
 import bcrypt from 'bcryptjs';
 import QRCode from 'qrcode';
@@ -21,6 +22,7 @@ function fail(code:number,message:string):never{throw new HttpError(code,message
 const audit=async(actor:string,action:string,target:string)=>db.audit.create({data:{actor,action,target}});
 const json=(data:unknown,status=200)=>NextResponse.json(data,{status,headers:{'Cache-Control':'no-store'}});
 async function read(path:string,req:NextRequest){
+ if(path==='setup/status')return {available:!!process.env.ADMIN_SETUP_TOKEN&&await db.user.count({where:{role:'ADMIN'}})===0};
  if(path==='catalog')return {products:await db.product.findMany({orderBy:{name:'asc'}}),packages:await db.package.findMany({where:{active:true},orderBy:{price:'asc'}})};
  if(path==='availability'){const month=req.nextUrl.searchParams.get('month')||todayManila().slice(0,7);if(!/^\d{4}-\d{2}$/.test(month))fail(400,'Invalid month');const [bookings,blocks]=await Promise.all([db.booking.findMany({where:{eventDate:{startsWith:month},status:{in:reservedStatuses}},select:{eventDate:true}}),db.blockedDate.findMany({where:{date:{startsWith:month}},select:{date:true}})]);return {unavailable:[...new Set([...bookings.map(b=>b.eventDate),...blocks.map(b=>b.date)])],policy:'One event per cart per day. Requests are subject to confirmation.'};}
  if(path==='session'){const s=await currentSession();return {user:s?safeUser(s.user):null,verified:!!s?.verified,needsEnrollment:!!s&&isOperations(s.user.role)&&!s.user.totpEnabled};}
@@ -34,6 +36,24 @@ async function read(path:string,req:NextRequest){
  fail(404,'Page not found.');
 }
 async function write(path:string,b:unknown){
+ if(path==='auth/setup'){
+  const token=process.env.ADMIN_SETUP_TOKEN;
+  if(!token||token.length<32)fail(404,'Admin setup is unavailable.');
+  const d=z.object({name,email,password,setupCode:z.string().min(1).max(256)}).parse(b);
+  await rateLimit('admin-setup',8);
+  const expected=crypto.createHash('sha256').update(token).digest();
+  const supplied=crypto.createHash('sha256').update(d.setupCode).digest();
+  if(!crypto.timingSafeEqual(expected,supplied))fail(401,'Setup code is incorrect.');
+  const passwordHash=await bcrypt.hash(d.password,12);
+  const user=await db.$transaction(async tx=>{
+   await tx.$executeRaw`SELECT pg_advisory_xact_lock(4477103)`;
+   if(await tx.user.count({where:{role:'ADMIN'}}))fail(409,'The first Admin account has already been created.');
+   if(await tx.user.findUnique({where:{email:d.email}}))fail(409,'This email already has an account.');
+   return tx.user.create({data:{name:d.name,email:d.email,passwordHash,role:'ADMIN'}});
+  });
+  await newSession(user.id,false);
+  return {user:safeUser(user),verified:false,needsEnrollment:true};
+ }
  if(path==='auth/register'){const d=z.object({name,email,password}).parse(b);await rateLimit('register:'+d.email,4);if(await db.user.findUnique({where:{email:d.email}}))fail(400,'Unable to create this account. Try signing in.');const user=await db.user.create({data:{name:d.name,email:d.email,passwordHash:await bcrypt.hash(d.password,12),role:'CUSTOMER'}});await newSession(user.id,true);return {user:safeUser(user),verified:true};}
  if(path==='auth/login'){const d=z.object({email,password:z.string().max(128)}).parse(b);await rateLimit('login:'+d.email,8);const u=await db.user.findUnique({where:{email:d.email}});const ok=await bcrypt.compare(d.password,u?.passwordHash||'$2b$12$QljzXhwj0fBFcz0.xThPoOlKA.eYN/XIfSSSLGkG.c2Om7oaUMPRG');if(!u||!u.active||!ok)fail(401,'Email or password is incorrect.');await newSession(u.id,!isOperations(u.role));return {user:safeUser(u),verified:!isOperations(u.role),needsEnrollment:isOperations(u.role)&&!u.totpEnabled};}
  if(path==='auth/logout'){const s=await currentSession();if(s)await db.session.deleteMany({where:{id:s.id}});(await cookies()).delete('cultiva_session');return {ok:true};}
