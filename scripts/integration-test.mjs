@@ -1,0 +1,68 @@
+import EmbeddedPostgres from 'embedded-postgres';
+import {PrismaClient} from '@prisma/client';
+import {spawn} from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import bcrypt from 'bcryptjs';
+import * as OTPAuth from 'otpauth';
+import assert from 'node:assert/strict';
+const temp=fs.mkdtempSync(path.join(os.tmpdir(),'cultiva-test-'));
+const pg=new EmbeddedPostgres({databaseDir:temp+'/db',user:'postgres',password:'isolated-test-only',port:55434,persistent:false,postgresFlags:['-k',''],onLog:()=>{},onError:()=>{}});
+const base='http://127.0.0.1:4181';
+const env={...process.env,DATABASE_URL:'postgresql://postgres:isolated-test-only@127.0.0.1:55434/cultiva_test?schema=public',AUTH_ENCRYPTION_KEY:crypto.randomBytes(32).toString('hex'),APP_URL:base,NODE_ENV:'production'};
+const run=(args)=>new Promise((resolve,reject)=>{const p=spawn('node',args,{env,stdio:['ignore','ignore','pipe']});let err='';p.stderr.on('data',d=>err+=d);p.on('exit',c=>c===0?resolve():reject(new Error(err)))});
+let server,db;let checks=0;
+const check=(name)=>{checks++;console.log('PASS '+name)};
+function client(){let cookie='';return {async call(p,body){const r=await fetch(base+'/api/'+p,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',Origin:base,...(cookie?{Cookie:cookie}:{})},...(body?{body:JSON.stringify(body)}:{})});if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];return {status:r.status,data:await r.json()}}}}
+try{
+ await pg.initialise();await pg.start();await pg.createDatabase('cultiva_test');
+ await run(['node_modules/prisma/build/index.js','migrate','deploy']);await run(['--import','tsx','scripts/seed.ts']);
+ db=new PrismaClient({datasources:{db:{url:env.DATABASE_URL}}});
+ const testPassword='Test-only-password-'+crypto.randomBytes(8).toString('hex');const passwordHash=await bcrypt.hash(testPassword,12);
+ for(const [email,role] of [['admin@test.invalid','ADMIN'],['staff@test.invalid','STAFF']])await db.user.create({data:{name:role,email,role,passwordHash}});
+ server=spawn('node',['node_modules/next/dist/bin/next','start','--hostname','127.0.0.1','--port','4181'],{env,stdio:['ignore','pipe','pipe']});
+ await new Promise((resolve,reject)=>{let text='';const timer=setTimeout(()=>reject(new Error('Server startup timed out')),30000);server.stdout.on('data',d=>{text+=d;if(text.includes('Ready')){clearTimeout(timer);resolve()}});server.on('exit',()=>{clearTimeout(timer);reject(new Error('Server exited'))})});
+ const anon=client(),customer=client(),other=client(),admin=client(),staff=client();
+ assert.equal((await anon.call('assets')).status,401);check('anonymous access to inventory denied');
+ let r=await customer.call('auth/register',{name:'QA Customer',email:'customer@test.invalid',password:testPassword,role:'ADMIN'});assert.equal(r.status,200);assert.equal(r.data.user.role,'CUSTOMER');check('public registration cannot escalate role');
+ assert.equal((await customer.call('analytics')).status,403);assert.equal((await customer.call('users')).status,403);check('customer denied Admin data');
+ await other.call('auth/register',{name:'Other Customer',email:'other@test.invalid',password:testPassword});
+ let recovery;
+ for(const [c,email] of [[admin,'admin@test.invalid'],[staff,'staff@test.invalid']]){
+  r=await c.call('auth/login',{email,password:testPassword});assert.equal(r.data.verified,false);
+  assert.equal((await c.call('assets')).status,403);check(email+' blocked before TOTP');
+  const setup=await c.call('auth/enroll',{});assert.equal(setup.status,200);assert.ok(setup.data.qr.startsWith('data:image/png'));
+  assert.equal((await c.call('auth/verify',{code:'abcdef'})).status,401);
+  const otp=new OTPAuth.TOTP({issuer:'CULTIVA',label:email,secret:OTPAuth.Secret.fromBase32(setup.data.secret),digits:6,period:30});const code=otp.generate();
+  r=await c.call('auth/verify',{code});assert.equal(r.status,200);assert.equal(r.data.recoveryCodes.length,8);if(email.startsWith('admin'))recovery=r.data.recoveryCodes;
+  assert.equal((await c.call('auth/verify',{code})).status,401);check(email+' enrolls and replayed TOTP is rejected');
+ }
+ assert.equal((await staff.call('analytics')).status,403);assert.equal((await staff.call('users/create',{name:'Bad Admin',email:'bad@test.invalid',password:testPassword,role:'ADMIN'})).status,403);check('Staff cannot read analytics or create privileged users');
+ const catalog=(await anon.call('catalog')).data;const p=catalog.products.find(x=>x.id==='spanish-latte');
+ const order=(await customer.call('orders/create',{items:[{id:p.id,qty:2,price:1}],total:2})).data.order;assert.equal(order.total,p.price*2);assert.equal((await other.call('orders')).data.orders.length,0);check('server prices orders and isolates customer records');
+ assert.equal((await admin.call('orders/status',{id:order.id,status:'COMPLETED'})).status,400);
+ for(const status of ['ACCEPTED','PREPARING','READY'])assert.equal((await staff.call('orders/status',{id:order.id,status})).status,200);
+ assert.equal((await staff.call('orders/status',{id:order.id,status:'COMPLETED'})).status,400);
+ await staff.call('orders/payment',{id:order.id,amount:order.total,method:'Cash'});
+ assert.equal((await staff.call('orders/status',{id:order.id,status:'COMPLETED'})).status,200);check('order fulfillment requires valid transitions and full payment');
+ const eventDate=new Date(Date.now()+7*86400000).toISOString().slice(0,10);const details={packageId:catalog.packages[0].id,eventDate,eventTime:'14:00',eventType:'Test celebration',venue:'Test-only venue, test city',name:'QA Customer',phone:'09123456789',guests:25,notes:'Automated test'};
+ assert.equal((await customer.call('bookings/create',{...details,phone:'09ABC'})).status,400);check('invalid mobile number rejected');
+ const b1=(await customer.call('bookings/create',details)).data.booking;const b2=(await other.call('bookings/create',{...details,name:'Other Customer'})).data.booking;
+ assert.equal((await admin.call('bookings/status',{id:b1.id,status:'CONFIRMED'})).status,400);check('confirmation requires verified deposit');
+ for(const b of [b1,b2])await admin.call('bookings/payment',{id:b.id,amount:Math.ceil(b.total/2),method:'Cash',reference:'QA-deposit'});
+ const results=await Promise.all([b1,b2].map(b=>admin.call('bookings/status',{id:b.id,status:'CONFIRMED'})));assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);check('concurrent confirmations cannot double-book a date');
+ const winner=results[0].status===200?b1:b2;
+ assert.ok((await anon.call('availability?month='+eventDate.slice(0,7))).data.unavailable.includes(eventDate));check('confirmed booking appears as unavailable to the public');
+ const asset=(await admin.call('assets')).data.assets.find(a=>a.id==='cups');
+ assert.equal((await staff.call('assets/assign',{bookingId:winner.id,assetId:asset.id,quantity:101})).status,400);
+ assert.equal((await staff.call('assets/assign',{bookingId:winner.id,assetId:asset.id,quantity:60})).status,200);
+ const assigned=(await admin.call('assets')).data.assets.find(a=>a.id===asset.id);assert.equal(assigned.quantity-assigned.allocations.reduce((s,a)=>s+a.quantity,0),40);
+ const aid=assigned.allocations[0].id;assert.equal((await staff.call('assets/return',{id:aid,damaged:2,lost:0})).status,200);assert.equal((await staff.call('assets/return',{id:aid,damaged:2,lost:0})).status,409);check('reusable assignment and damaged return are validated, with no double return');
+ const summary=(await admin.call('analytics')).data;assert.equal(summary.sales,order.total);assert.equal(summary.rentalRevenue,0);assert.equal(summary.collections,order.total+b1.total);check('analytics separates completed revenue from deposits without double counting');
+ await admin.call('auth/logout',{});await admin.call('auth/login',{email:'admin@test.invalid',password:testPassword});assert.equal((await admin.call('auth/verify',{code:recovery[0],recovery:true})).status,200);
+ await admin.call('auth/logout',{});await admin.call('auth/login',{email:'admin@test.invalid',password:testPassword});assert.equal((await admin.call('auth/verify',{code:recovery[0],recovery:true})).status,401);check('recovery codes work exactly once');
+ const csrf=await fetch(base+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://untrusted.invalid'},body:JSON.stringify({email:'admin@test.invalid',password:testPassword})});assert.equal(csrf.status,403);check('cross-origin mutations are rejected');
+ console.log(`Integration checks passed: ${checks}`);
+}finally{server?.kill('SIGTERM');await db?.$disconnect();await pg.stop().catch(()=>{});fs.rmSync(temp,{recursive:true,force:true});}

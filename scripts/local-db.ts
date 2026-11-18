@@ -1,0 +1,16 @@
+import EmbeddedPostgres from 'embedded-postgres';
+import fs from 'node:fs';
+import crypto from 'node:crypto';
+const directory='.local/postgres';
+const pg=new EmbeddedPostgres({databaseDir:directory,user:'postgres',password:'local-development-only',port:55432,persistent:true,postgresFlags:['-k',''],onLog:console.log,onError:(e)=>console.error(e)});
+if(!fs.existsSync(directory+'/PG_VERSION')) await pg.initialise();
+await pg.start();
+const client=pg.getPgClient();await client.connect();
+const result=await client.query("SELECT 1 FROM pg_database WHERE datname='cultiva'");
+if(!result.rowCount)await pg.createDatabase('cultiva');
+await client.end();
+if(!fs.existsSync('.env'))fs.writeFileSync('.env',`DATABASE_URL="postgresql://postgres:local-development-only@localhost:55432/cultiva?schema=public"\nAUTH_ENCRYPTION_KEY="${crypto.randomBytes(32).toString('hex')}"\nAPP_URL="http://localhost:3000"\n`);
+console.log('Local PostgreSQL ready on port 55432');
+process.on('SIGTERM',async()=>{await pg.stop();process.exit(0)});
+process.on('SIGINT',async()=>{await pg.stop();process.exit(0)});
+setInterval(()=>{},60000);
