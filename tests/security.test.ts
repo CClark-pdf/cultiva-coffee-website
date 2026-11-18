@@ -1,0 +1,11 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {newTotp,makeTotp,verifyTotp,encrypt,decrypt,recoveryCodes,hash} from '../src/lib/security';
+import {canTransition,orderTransitions,bookingTransitions,validDate,todayManila,usableAsset,isOperations} from '../src/lib/rules';
+test('TOTP accepts a valid current code and rejects incorrect or replayed codes',()=>{const secret=newTotp(),now=1800000000000;const token=makeTotp(secret,'test@example.test').generate({timestamp:now});const step=verifyTotp(secret,'test@example.test',token,0n,now);assert.equal(step,BigInt(now/30000));assert.equal(verifyTotp(secret,'test@example.test',token,step!,now),null);assert.equal(verifyTotp(secret,'test@example.test','abcdef',0n,now),null);assert.equal(verifyTotp(secret,'test@example.test',token,0n,now+120000),null)});
+test('TOTP secrets are encrypted with tamper detection',()=>{const value=newTotp(),sealed=encrypt(value);assert.notEqual(value,sealed);assert.equal(decrypt(sealed),value);const buf=Buffer.from(sealed,'base64');buf[15]^=1;assert.throws(()=>decrypt(buf.toString('base64')))});
+test('Recovery codes are unique and stored using one-way hashes',()=>{const codes=recoveryCodes();assert.equal(codes.length,8);assert.equal(new Set(codes).size,8);for(const code of codes){assert.equal(code.length,12);assert.notEqual(hash(code),code)}});
+test('Only Staff and Admin require operations authentication',()=>{assert.equal(isOperations('ADMIN'),true);assert.equal(isOperations('STAFF'),true);assert.equal(isOperations('CUSTOMER'),false)});
+test('Order and booking transitions cannot skip fulfillment or reopen cancellations',()=>{assert.equal(canTransition(orderTransitions,'PENDING','COMPLETED'),false);assert.equal(canTransition(orderTransitions,'ACCEPTED','PREPARING'),true);assert.equal(canTransition(bookingTransitions,'PENDING','CONFIRMED'),true);assert.equal(canTransition(bookingTransitions,'CANCELLED','CONFIRMED'),false)});
+test('Calendar validates real dates and uses Philippine midnight',()=>{assert.equal(validDate('2026-02-30'),false);assert.equal(validDate('2028-02-29'),true);assert.equal(validDate('not-a-date'),false);assert.equal(todayManila(new Date('2026-11-18T17:00:00Z')),'2026-11-19')});
+test('Reusable asset condition reduces usable count without consuming food stock',()=>{assert.equal(usableAsset(100,2,1),97)});
