@@ -1,0 +1,122 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+model User {
+  id String @id @default(cuid())
+  name String
+  email String @unique
+  passwordHash String
+  role String @default("CUSTOMER")
+  active Boolean @default(true)
+  totpSecret String?
+  totpEnabled Boolean @default(false)
+  lastTotpStep BigInt @default(0)
+  recoveryHashes String[] @default([])
+  createdAt DateTime @default(now())
+  sessions Session[]
+  orders Order[]
+  bookings Booking[]
+}
+model Session {
+  id String @id
+  userId String
+  user User @relation(fields:[userId], references:[id], onDelete:Cascade)
+  verified Boolean @default(false)
+  expiresAt DateTime
+  @@index([userId])
+}
+model Attempt {
+  key String @id
+  count Int @default(1)
+  expiresAt DateTime
+}
+model Product {
+  id String @id @default(cuid())
+  name String
+  description String
+  category String
+  price Int
+  image String
+  available Boolean @default(true)
+  featured Boolean @default(false)
+}
+model Package {
+  id String @id @default(cuid())
+  name String
+  servings Int
+  hours Int
+  price Int
+  description String
+  active Boolean @default(true)
+}
+model Order {
+  id String @id @default(cuid())
+  userId String?
+  user User? @relation(fields:[userId], references:[id])
+  customerName String
+  channel String @default("PICKUP")
+  status String @default("PENDING")
+  items Json
+  total Int
+  paid Int @default(0)
+  paymentMethod String?
+  createdAt DateTime @default(now())
+  @@index([createdAt])
+}
+model Booking {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields:[userId], references:[id])
+  packageName String
+  eventDate String
+  eventTime String
+  eventType String
+  venue String
+  name String
+  phone String
+  guests Int
+  notes String @default("")
+  status String @default("PENDING")
+  total Int
+  paid Int @default(0)
+  payments Json @default("[]")
+  createdAt DateTime @default(now())
+  allocations Allocation[]
+  @@index([eventDate, status])
+}
+model BlockedDate {
+  date String @id
+  reason String
+}
+model Asset {
+  id String @id @default(cuid())
+  name String
+  category String
+  quantity Int
+  damaged Int @default(0)
+  lost Int @default(0)
+  allocations Allocation[]
+}
+model Allocation {
+  id String @id @default(cuid())
+  bookingId String
+  booking Booking @relation(fields:[bookingId], references:[id])
+  assetId String
+  asset Asset @relation(fields:[assetId], references:[id])
+  quantity Int
+  returned Boolean @default(false)
+  damaged Int @default(0)
+  lost Int @default(0)
+  @@unique([bookingId,assetId])
+}
+model Audit {
+  id String @id @default(cuid())
+  actor String
+  action String
+  target String
+  createdAt DateTime @default(now())
+}
