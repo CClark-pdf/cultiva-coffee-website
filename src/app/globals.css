@@ -35,3 +35,12 @@
 .reset-page .ops-login-card{width:min(100%,460px)}
 .reset-page .brand{margin-bottom:2rem}
 .reset-page h1{font-size:2rem;line-height:1.15;margin-bottom:1rem}
+/* Coffee cart booking draft and group estimate */
+.draft-banner{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 18px;margin:12px 0 25px;background:#e9eee0;border:1px solid #cdd6bd;border-radius:7px;color:var(--olive);font-size:12px}
+.draft-banner .under-link{white-space:nowrap}
+.package-guest-picker{display:flex;align-items:end;gap:20px;flex-wrap:wrap;margin:0 0 28px;padding:22px;background:var(--paper);border:1px solid var(--line);border-radius:7px}
+.package-guest-picker .field{min-width:190px;margin:0}
+.package-guest-picker input{max-width:160px}
+.package-guest-picker p{margin:0 0 7px;max-width:520px;font-size:12px}
+.package-guest-estimate{font-size:12px;font-weight:600;color:var(--olive);min-height:20px}
+@media(max-width:600px){.draft-banner{align-items:flex-start;flex-direction:column}.package-guest-picker{align-items:stretch}.package-guest-picker input{max-width:none}}
