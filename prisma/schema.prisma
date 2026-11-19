@@ -21,6 +21,15 @@ model User {
   orders Order[]
   bookings Booking[]
   notifications Notification[]
+  resetTokens PasswordResetToken[]
+}
+model PasswordResetToken {
+  id String @id
+  userId String
+  user User @relation(fields:[userId], references:[id], onDelete:Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([userId])
 }
 model Notification {
   id String @id @default(cuid())
@@ -55,6 +64,14 @@ model Product {
   image String
   available Boolean @default(true)
   featured Boolean @default(false)
+  uploadedImage ProductImage?
+}
+model ProductImage {
+  productId String @id
+  product Product @relation(fields:[productId], references:[id], onDelete:Cascade)
+  bytes Bytes
+  mimeType String
+  updatedAt DateTime @updatedAt
 }
 model Package {
   id String @id @default(cuid())
