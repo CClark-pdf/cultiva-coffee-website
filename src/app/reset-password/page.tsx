@@ -1,0 +1,11 @@
+'use client';
+import {useEffect,useState,type FormEvent} from 'react';
+import Link from 'next/link';
+import {Sun} from 'lucide-react';
+
+export default function ResetPassword(){
+ const [token,setToken]=useState(''),[password,setPassword]=useState(''),[confirm,setConfirm]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[done,setDone]=useState(false);
+ useEffect(()=>{const value=new URLSearchParams(location.search).get('token')||'';setToken(value);history.replaceState(null,'','/reset-password')},[]);
+ async function submit(e:FormEvent){e.preventDefault();if(password!==confirm){setError('Passwords do not match.');return}setBusy(true);setError('');try{const r=await fetch('/api/auth/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,password})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Unable to reset password.');setDone(true);setToken('')}catch(e){setError((e as Error).message)}finally{setBusy(false)}}
+ return <main className="reset-page"><div className="ops-login-card"><div className="brand"><Sun strokeWidth={1.3}/><span>CULTIVA<small>COFFEE & COMPANY</small></span></div><h1>{done?'Password updated':'Choose a new password'}</h1>{done?<><p>You can now sign in with your new password. Other sessions were signed out.</p><Link className="btn primary full" href="/">Return to sign in</Link></>:!token?<><p>This reset link is missing or has already been opened here. Request a new link from the customer sign-in page.</p><Link className="btn outline full" href="/">Return to Cultiva</Link></>:<form className="auth-body" onSubmit={submit}><p>This link works once. Use at least 12 characters for your new password.</p>{error&&<p className="notice error" role="alert">{error}</p>}<label className="field"><span>New password</span><input type="password" autoComplete="new-password" minLength={12} maxLength={128} required value={password} onChange={e=>setPassword(e.target.value)}/></label><label className="field"><span>Confirm new password</span><input type="password" autoComplete="new-password" minLength={12} maxLength={128} required value={confirm} onChange={e=>setConfirm(e.target.value)}/></label><button className="btn primary full" disabled={busy}>{busy?'Saving…':'Reset password'}</button></form>}</div></main>
+}
