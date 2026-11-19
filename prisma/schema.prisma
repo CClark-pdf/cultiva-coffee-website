@@ -96,6 +96,8 @@ model Order {
   payments Json @default("[]")
   createdAt DateTime @default(now())
   @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
 }
 model Booking {
   id String @id @default(cuid())
@@ -117,6 +119,8 @@ model Booking {
   createdAt DateTime @default(now())
   allocations Allocation[]
   @@index([eventDate, status])
+  @@index([userId, eventDate])
+  @@index([status, eventDate])
 }
 model BlockedDate {
   date String @id
