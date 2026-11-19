@@ -114,6 +114,15 @@ try{
  assert.equal(summary.categoryTotals.reduce((sum,p)=>sum+p.total,0),summary.sales);
  assert.equal(summary.hourBins.reduce((sum,p)=>sum+p.orders,0),summary.completedOrders);
  check('analytics separates coffee and meals, trends, channels, category totals, and peak hours');
+ const duplicateDate=new Date(Date.now()+8*86400000).toISOString().slice(0,10);
+ const duplicateRequests=await Promise.all([customer.call('bookings/create',{...details,eventDate:duplicateDate}),customer.call('bookings/create',{...details,eventDate:duplicateDate})]);
+ assert.deepEqual(duplicateRequests.map(r=>r.status).sort(),[200,409]);
+ const onePending=await db.booking.count({where:{userId:b1.userId,eventDate:duplicateDate,status:'PENDING'}});
+ assert.equal(onePending,1);
+ check('concurrent requests by one customer cannot create duplicate pending bookings');
+ await assert.rejects(db.order.update({where:{id:order.id},data:{paid:order.total+1}}));
+ await assert.rejects(db.asset.update({where:{id:asset.id},data:{quantity:1}}));
+ check('database rejects overpaid orders and impossible reusable asset totals');
  for(const [days,buckets] of [[7,7],[90,13]]){const report=(await admin.call('analytics?days='+days)).data;assert.equal(report.sales,summary.sales);assert.equal(report.chart.length,buckets);assert.equal(report.chart.reduce((sum,p)=>sum+p.total,0),report.sales)}
  assert.equal((await admin.call('analytics?days=999')).status,400);check('dashboard date ranges aggregate every completed sale exactly once');
  const added=await admin.call('menu/save',{name:'QA coffee',description:'Isolated test item',category:'Coffee',price:15500,image:'/images/latte.jpg',available:true,featured:false});assert.equal(added.status,200);
