@@ -31,3 +31,7 @@
 .payment-entry small{display:block;color:#6e7067;margin-top:.2rem}
 .unread-notice{border-left:3px solid #6c8060}
 .temporary-password{display:block;padding:1rem;overflow-wrap:anywhere;background:#f1eee5;border-radius:.7rem;font-size:1rem;user-select:all}
+.reset-page{min-height:100vh;display:grid;place-items:center;padding:2rem;background:var(--cream)}
+.reset-page .ops-login-card{width:min(100%,460px)}
+.reset-page .brand{margin-bottom:2rem}
+.reset-page h1{font-size:2rem;line-height:1.15;margin-bottom:1rem}
