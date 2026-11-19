@@ -8,15 +8,17 @@ import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import * as OTPAuth from 'otpauth';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 const temp=fs.mkdtempSync(path.join(os.tmpdir(),'cultiva-test-'));
 const pg=new EmbeddedPostgres({databaseDir:temp+'/db',user:'postgres',password:'isolated-test-only',port:55434,persistent:false,postgresFlags:['-k',''],onLog:()=>{},onError:()=>{}});
 const base='http://127.0.0.1:4181';
-const env={...process.env,DATABASE_URL:'postgresql://postgres:isolated-test-only@127.0.0.1:55434/cultiva_test?schema=public',AUTH_ENCRYPTION_KEY:crypto.randomBytes(32).toString('hex'),ADMIN_SETUP_TOKEN:crypto.randomBytes(32).toString('hex'),APP_URL:base,NODE_ENV:'production'};
+const env={...process.env,DATABASE_URL:'postgresql://postgres:isolated-test-only@127.0.0.1:55434/cultiva_test?schema=public',AUTH_ENCRYPTION_KEY:crypto.randomBytes(32).toString('hex'),ADMIN_SETUP_TOKEN:crypto.randomBytes(32).toString('hex'),APP_URL:base,NODE_ENV:'production',RESEND_API_KEY:'isolated-test-key',RESET_FROM_EMAIL:'CULTIVA <qa@test.invalid>',CULTIVA_ALLOW_LOCAL_EMAIL_TEST:'1'};
 const run=(args)=>new Promise((resolve,reject)=>{const p=spawn('node',args,{env,stdio:['ignore','ignore','pipe']});let err='';p.stderr.on('data',d=>err+=d);p.on('exit',c=>c===0?resolve():reject(new Error(err)))});
-let server,db;let checks=0;
+let server,db,mailServer;const sent=[];let checks=0;
 const check=(name)=>{checks++;console.log('PASS '+name)};
-function client(){let cookie='';return {async call(p,body){const r=await fetch(base+'/api/'+p,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',Origin:base,...(cookie?{Cookie:cookie}:{})},...(body?{body:JSON.stringify(body)}:{})});if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];return {status:r.status,data:await r.json()}}}}
+function client(){let cookie='';return {async call(p,body){const r=await fetch(base+'/api/'+p,{method:body?'POST':'GET',headers:{'Content-Type':'application/json',Origin:base,...(cookie?{Cookie:cookie}:{})},...(body?{body:JSON.stringify(body)}:{})});if(r.headers.get('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];return {status:r.status,data:await r.json()}},async upload(productId,photo){const f=new FormData();f.set('productId',productId);f.set('photo',photo);const r=await fetch(base+'/api/menu/image',{method:'POST',headers:{Origin:base,...(cookie?{Cookie:cookie}:{})},body:f});return {status:r.status,data:await r.json()}}}}
 try{
+ mailServer=http.createServer((req,res)=>{let body='';req.on('data',d=>body+=d);req.on('end',()=>{sent.push(JSON.parse(body));res.writeHead(200,{'Content-Type':'application/json'});res.end('{"id":"test-message"}')})});await new Promise(resolve=>mailServer.listen(0,'127.0.0.1',resolve));env.RESEND_API_URL=`http://127.0.0.1:${mailServer.address().port}/emails`;
  await pg.initialise();await pg.start();await pg.createDatabase('cultiva_test');
  await run(['node_modules/prisma/build/index.js','migrate','deploy']);await run(['--import','tsx','scripts/seed.ts']);
  db=new PrismaClient({datasources:{db:{url:env.DATABASE_URL}}});
@@ -114,6 +116,17 @@ try{
  check('analytics separates coffee and meals, trends, channels, category totals, and peak hours');
  for(const [days,buckets] of [[7,7],[90,13]]){const report=(await admin.call('analytics?days='+days)).data;assert.equal(report.sales,summary.sales);assert.equal(report.chart.length,buckets);assert.equal(report.chart.reduce((sum,p)=>sum+p.total,0),report.sales)}
  assert.equal((await admin.call('analytics?days=999')).status,400);check('dashboard date ranges aggregate every completed sale exactly once');
+ const added=await admin.call('menu/save',{name:'QA coffee',description:'Isolated test item',category:'Coffee',price:15500,image:'/images/latte.jpg',available:true,featured:false});assert.equal(added.status,200);
+ const productId=added.data.productId;assert.ok(productId);
+ assert.equal((await staff.call('menu/save',{id:productId,name:'Wrong edit',description:'No access',category:'Coffee',price:1,image:'/images/latte.jpg',available:true,featured:false})).status,403);
+ const updated=await admin.call('menu/save',{id:productId,name:'QA coffee',description:'Isolated test item',category:'Coffee',price:16500,image:'/images/latte.jpg',available:true,featured:false});assert.equal(updated.status,200);
+ assert.equal((await anon.call('catalog')).data.products.find(x=>x.id===productId).price,16500);check('Admin changes menu prices and Staff cannot edit catalog');
+ const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/M5sAAAAASUVORK5CYII=','base64');
+ assert.equal((await staff.upload(productId,new File([png],'test.png',{type:'image/png'}))).status,403);
+ assert.equal((await admin.upload(productId,new File(['not an image'],'fake.png',{type:'image/png'}))).status,400);
+ assert.equal((await admin.upload(productId,new File([png],'test.png',{type:'image/png'}))).status,200);
+ const imageResponse=await fetch(base+'/api/menu/image/'+productId);assert.equal(imageResponse.status,200);assert.equal(imageResponse.headers.get('content-type'),'image/png');assert.deepEqual(Buffer.from(await imageResponse.arrayBuffer()),png);
+ assert.equal((await anon.call('catalog')).data.products.find(x=>x.id===productId).image,'/api/menu/image/'+productId);check('Admin photo upload validates bytes and persists a public image');
  assert.equal((await staff.call('users/recover',{id:staffId,currentPassword:testPassword,resetAuthenticator:true})).status,403);
  assert.equal((await admin.call('users/recover',{id:staffId,currentPassword:'wrong',resetAuthenticator:true})).status,403);
  const staffReset=await admin.call('users/recover',{id:staffId,currentPassword:testPassword,resetAuthenticator:true});
@@ -124,8 +137,25 @@ try{
  assert.equal(relog.status,200);assert.equal(relog.data.needsEnrollment,true);
  assert.equal((await staff.call('assets')).status,403);
  check('Admin Staff recovery revokes sessions and requires Authenticator enrollment');
+ assert.equal((await anon.call('auth/recovery/status')).data.available,true);
+ assert.equal((await anon.call('auth/forgot',{email:'missing@test.invalid'})).status,200);assert.equal(sent.length,0);
+ assert.equal((await anon.call('auth/forgot',{email:'staff@test.invalid'})).status,200);assert.equal(sent.length,0);
+ assert.equal((await anon.call('auth/forgot',{email:'customer@test.invalid'})).status,200);assert.equal(sent.length,1);
+ const link=sent[0].text.match(/http:\/\/[^\s]+/)[0],token=new URL(link).searchParams.get('token');assert.ok(token);
+ assert.equal((await anon.call('auth/reset',{token:'wrong',password:'another-long-password'})).status,400);
+ const newPassword='New-test-password-'+crypto.randomBytes(8).toString('hex');
+ assert.equal((await anon.call('auth/reset',{token,password:newPassword})).status,200);
+ assert.equal((await customer.call('orders')).status,401);
+ assert.equal((await anon.call('auth/reset',{token,password:'another-long-password'})).status,400);
+ assert.equal((await customer.call('auth/login',{email:'customer@test.invalid',password:testPassword})).status,401);
+ assert.equal((await customer.call('auth/login',{email:'customer@test.invalid',password:newPassword})).status,200);
+ check('customer reset emails are scoped, single use, and revoke previous sessions');
+ assert.equal((await anon.call('auth/forgot',{email:'other@test.invalid'})).status,200);
+ const expiredToken=new URL(sent[1].text.match(/http:\/\/[^\s]+/)[0]).searchParams.get('token');
+ await db.passwordResetToken.update({where:{id:crypto.createHash('sha256').update(expiredToken).digest('hex')},data:{expiresAt:new Date(Date.now()-1000)}});
+ assert.equal((await anon.call('auth/reset',{token:expiredToken,password:newPassword})).status,400);check('expired customer reset links are rejected');
  await admin.call('auth/logout',{});await admin.call('auth/login',{email:'admin@test.invalid',password:testPassword});assert.equal((await admin.call('auth/verify',{code:recovery[0],recovery:true})).status,200);
  await admin.call('auth/logout',{});await admin.call('auth/login',{email:'admin@test.invalid',password:testPassword});assert.equal((await admin.call('auth/verify',{code:recovery[0],recovery:true})).status,401);check('recovery codes work exactly once');
  const csrf=await fetch(base+'/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://untrusted.invalid'},body:JSON.stringify({email:'admin@test.invalid',password:testPassword})});assert.equal(csrf.status,403);check('cross-origin mutations are rejected');
  console.log(`Integration checks passed: ${checks}`);
-}finally{server?.kill('SIGTERM');await db?.$disconnect();await pg.stop().catch(()=>{});fs.rmSync(temp,{recursive:true,force:true});}
+}finally{server?.kill('SIGTERM');mailServer?.close();await db?.$disconnect();await pg.stop().catch(()=>{});fs.rmSync(temp,{recursive:true,force:true});}
