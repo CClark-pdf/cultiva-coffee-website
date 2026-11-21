@@ -79,6 +79,7 @@ model Package {
   servings Int
   hours Int
   price Int
+  transportFee Int @default(0)
   description String
   active Boolean @default(true)
 }
@@ -94,7 +95,10 @@ model Order {
   paid Int @default(0)
   paymentMethod String?
   payments Json @default("[]")
+  pickupDate String?
+  pickupTime String?
   createdAt DateTime @default(now())
+  @@index([pickupDate, pickupTime, status])
   @@index([createdAt])
   @@index([userId, createdAt])
   @@index([status, createdAt])
@@ -114,6 +118,8 @@ model Booking {
   notes String @default("")
   status String @default("PENDING")
   total Int
+  packagePrice Int @default(0)
+  transportFee Int @default(0)
   paid Int @default(0)
   payments Json @default("[]")
   createdAt DateTime @default(now())
@@ -121,6 +127,13 @@ model Booking {
   @@index([eventDate, status])
   @@index([userId, eventDate])
   @@index([status, eventDate])
+}
+model PickupSchedule {
+  weekday Int @id
+  enabled Boolean @default(true)
+  opensAt String @default("08:00")
+  closesAt String @default("18:00")
+  capacity Int @default(5)
 }
 model BlockedDate {
   date String @id

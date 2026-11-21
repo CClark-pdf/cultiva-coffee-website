@@ -9,3 +9,14 @@ export async function sendPasswordReset(to:string,token:string){
  });
  if(!response.ok)throw new Error(`Email provider rejected the reset message (${response.status}).`);
 }
+
+export function updatesReady(){return !!(process.env.RESEND_API_KEY&&(process.env.UPDATES_FROM_EMAIL||process.env.RESET_FROM_EMAIL)&&(process.env.APP_URL?.startsWith('https://')||process.env.CULTIVA_ALLOW_LOCAL_EMAIL_TEST==='1'))}
+export async function sendCustomerUpdate(to:string,subject:string,message:string){
+ if(!updatesReady())return;
+ const link=new URL('/#account',process.env.APP_URL!);
+ const response=await fetch(process.env.RESEND_API_URL||'https://api.resend.com/emails',{
+  method:'POST',headers:{Authorization:`Bearer ${process.env.RESEND_API_KEY}`,'Content-Type':'application/json'},
+  body:JSON.stringify({from:process.env.UPDATES_FROM_EMAIL||process.env.RESET_FROM_EMAIL,to:[to],subject,text:`${message}\n\nView your CULTIVA account: ${link.toString()}`})
+ });
+ if(!response.ok)throw new Error(`Email provider rejected the customer update (${response.status}).`);
+}
