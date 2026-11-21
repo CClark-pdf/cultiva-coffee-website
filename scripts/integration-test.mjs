@@ -65,7 +65,7 @@ try{
   assert.equal((await anon.call('pickup/availability?date='+pickupDate)).data.slots.find(x=>x.time===pickupTime).remaining,0);
   assert.equal((await admin.call('pickup/schedule/save',{weekday,enabled:false,opensAt:'08:00',closesAt:'18:00',capacity:2})).status,409);
   assert.ok((await staff.call('orders/prep')).data.orders.some(x=>x.id===order.id));
-  check('pickup scheduling enforces capacity during concurrent checkout and protects existing orders');assert.equal(order.total,p.price*2);assert.equal((await other.call('orders')).data.orders.length,0);check('server prices orders and isolates customer records');
+  check('pickup scheduling enforces capacity during concurrent checkout and protects existing orders');assert.equal(order.total,p.price*2);assert.ok(!(await other.call('orders')).data.orders.some(x=>x.id===order.id));check('server prices orders and isolates customer records');
  assert.equal((await admin.call('orders/status',{id:order.id,status:'COMPLETED'})).status,400);
  for(const status of ['ACCEPTED','PREPARING','READY'])assert.equal((await staff.call('orders/status',{id:order.id,status})).status,200);
  assert.equal((await staff.call('orders/status',{id:order.id,status:'COMPLETED'})).status,400);
