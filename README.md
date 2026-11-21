@@ -23,6 +23,14 @@ Admins can edit menu names, prices, availability, and photos in **Menu & package
 
 For local development with an existing PostgreSQL service, use `npm run dev:app`. `npm run dev` is a preview helper that starts a local ephemeral database and serves the production build if no `DATABASE_URL` is set; it is not the production process. To run the automated checks: `npm test`, `npm run typecheck`, `npm run build`, and `node scripts/integration-test.mjs` (the latter starts an isolated local PostgreSQL process and the production app).
 
+## Pickup scheduling, rental quotes, and notifications
+
+Customers select an available 30-minute pickup slot up to 14 Philippine calendar days ahead. Availability is rechecked under a database lock when the order is placed, so concurrent checkouts cannot exceed the configured capacity. Staff and Admin have a preparation board with live due timers, and Admin can edit each weekday's pickup opening hours, closing hours, and orders per slot under **Pickup hours**. The initial schedule is 08:00–18:00, five orders per 30-minute slot, every day; change those defaults in Admin to match actual service.
+
+Admin can set a fixed transport fee per coffee cart package in **Menu & packages**. Each new reservation stores the package price and fee separately, displays the combined total, 50% deposit, and remaining balance. Earlier reservations retain their original totals and show a zero fee.
+
+Order creation, order status changes, cart requests, and cart status changes appear in customer in-app **Updates** (alongside My Orders/My Reservations). If email is configured, the same key events are sent by email after saving the database change. Email failures are logged without undoing an order or booking.
+
 ## Railway deployment
 
 Create a **new, separate** Railway project and connect a GitHub repository containing this code. Add a PostgreSQL database to the project. On the web service set:
@@ -32,7 +40,7 @@ Create a **new, separate** Railway project and connect a GitHub repository conta
 - `APP_URL`: the exact public HTTPS origin for this site.
 - `ADMIN_SETUP_TOKEN`: a separate random 64-character hex one-time setup code. Never commit it. Remove this variable from Railway after the first Admin is created.
 - `NODE_ENV`: `production`.
-- `RESEND_API_KEY` and `RESET_FROM_EMAIL`: optional customer password recovery email. Verify the sender domain in Resend, use its API key, and set `RESET_FROM_EMAIL` to an address on that domain. Until both are configured, the customer sign-in page hides **Forgot password?**; Staff and Admin continue using recovery codes and Admin-mediated Staff recovery. Customer reset links expire after 30 minutes, work once, and revoke previous sessions. Never commit the key.
+- `RESEND_API_KEY` and `RESET_FROM_EMAIL`: optional customer password recovery email. Set `UPDATES_FROM_EMAIL` to an approved sender on the same verified domain for customer order and booking notifications (or reuse `RESET_FROM_EMAIL`). Verify the sender domain in Resend, use its API key, and set `RESET_FROM_EMAIL` to an address on that domain. Until both are configured, the customer sign-in page hides **Forgot password?**; Staff and Admin continue using recovery codes and Admin-mediated Staff recovery. Customer reset links expire after 30 minutes, work once, and revoke previous sessions. Never commit the key.
 
 Build: `npm run build`. Start: `npm start`. Pre-deploy command: `npm run db:migrate && npm run db:seed` (seed upserts sample catalog without overwriting existing edits). Set the web service public domain, set `APP_URL` to that origin, and redeploy. For the first Admin, open `/operations/login`, choose **Set up the first Admin account**, and enter the setup code from the Railway variable, your own email, and your own password. Complete Google Authenticator enrollment and save the one-time recovery codes. Then remove `ADMIN_SETUP_TOKEN` from Railway. Ensure you can sign in, create a Staff account, and complete a test order and booking before launch. Railway's managed Postgres needs backups and your project's cost settings reviewed before handling live client data.
 

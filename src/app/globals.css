@@ -44,3 +44,22 @@
 .package-guest-picker p{margin:0 0 7px;max-width:520px;font-size:12px}
 .package-guest-estimate{font-size:12px;font-weight:600;color:var(--olive);min-height:20px}
 @media(max-width:600px){.draft-banner{align-items:flex-start;flex-direction:column}.package-guest-picker{align-items:stretch}.package-guest-picker input{max-width:none}}
+
+/* Pickup checkout, staff preparation and operating hours */
+.pickup-picker{display:grid;gap:.8rem;margin:1rem 0;padding:1.1rem;background:#f1f2e9;border:1px solid #d9ddcb;border-radius:8px}
+.pickup-picker h3{margin:0;color:var(--olive);font-size:1.05rem}
+.pickup-picker p{margin:0}
+.pickup-picker .field{margin:0}
+.pickup-picker input,.pickup-picker select{width:100%;min-height:44px}
+.prep-board .table-tools{align-items:center}
+.prep-board .table-tools h2{margin:0;font-size:1.5rem}
+.prep-board .table-tools p{margin:.4rem 0 0}
+.prep-card{border-left:4px solid #708161}
+.prep-card .order-items{margin:.8rem 0}
+.prep-timer{display:inline-flex;align-items:center;padding:.4rem .7rem;border-radius:999px;background:#e8eee0;color:#34472c;font-weight:700}
+.prep-timer.late{background:#fae6d9;color:#8d3e22}
+.pickup-hours-row{display:grid;gap:1rem}
+.pickup-hours-row h3{margin:0}
+.pickup-hours-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem}
+.pickup-hours-row .btn{justify-self:start}
+@media(max-width:760px){.pickup-hours-fields{grid-template-columns:1fr}.prep-board .table-tools{align-items:flex-start;gap:.7rem}}
